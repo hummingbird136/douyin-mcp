@@ -111,14 +111,21 @@ _EXTRACT_VIDEO_CARDS_SCRIPT = r"""
 
     const titleNode = card.querySelector('[class*="info-title-text-"]');
     const statusNode = card.querySelector('[class*="info-status-"]');
-    const anchors = [...card.querySelectorAll('a[href]')];
-    const detailAnchor = anchors.find(anchor =>
+    const anchors = [...card.querySelectorAll('a[href]')];    const detailAnchor = anchors.find(anchor =>
       /数据|详情|分析/.test((anchor.innerText || '').trim())
     ) || anchors.find(anchor =>
       /data|detail|analysis/.test(anchor.getAttribute('href') || '')
     ) || anchors[0] || null;
     const leafNodes = [...card.querySelectorAll('*')].filter(el => el.children.length === 0);
     const durationNode = leafNodes.find(el => durationRe.test((el.innerText || '').trim()));
+    let status = statusNode ? (statusNode.innerText || '').trim() : null;
+    if (!status) {
+      // 仅自己可见/好友可见等徽标不一定挂在 info-status 类名节点上，
+      // 在卡片叶子节点里按关键词兜底探测，否则私密作品状态会丢失。
+      const visibilityRe = /(仅自己可见|互关朋友可见|好友可见|粉丝可见|私密)/;
+      const statusLeaf = leafNodes.find(el => visibilityRe.test((el.innerText || '').trim()));
+      status = statusLeaf ? (statusLeaf.innerText || '').trim() : null;
+    }
     const metrics = {};
     for (const labelNode of card.querySelectorAll('[class*="metric-label-"]')) {
       const item = labelNode.parentElement;
@@ -144,7 +151,7 @@ _EXTRACT_VIDEO_CARDS_SCRIPT = r"""
       title: titleNode ? (titleNode.innerText || '').trim() : '',
       publish_time: (dateNode.innerText || '').trim(),
       duration: durationNode ? (durationNode.innerText || '').trim() : null,
-      status: statusNode ? (statusNode.innerText || '').trim() : null,
+      status: status,
       cover_url: coverUrl,
       detail_url: detailAnchor ? detailAnchor.href : null,
       platform_item_id: detailAnchor ? (
@@ -453,8 +460,17 @@ def normalize_video_record(raw: dict[str, Any]) -> dict[str, Any] | None:
     )
     status = str(raw.get("status") or "").strip() or None
     raw_kind = str(raw.get("content_kind") or raw.get("type") or "").strip().lower()
+    # 可见性词表：创作者页徽标文案 -> 独立状态。仅自己可见/好友可见等
+    # 是作者主动设置的动作，需要与"平台不展示数据"区分开（pollen 复盘
+    # 与限流监控都消费该区分），不能笼统落 unknown。
     if status and "私密" in status:
         visibility = "private"
+    elif status and "仅自己可见" in status:
+        visibility = "self_visible"
+    elif status and ("互关朋友可见" in status or "好友可见" in status):
+        visibility = "friend_visible"
+    elif status and "粉丝可见" in status:
+        visibility = "follower_visible"
     elif status and any(marker in status for marker in ("公开", "已发布", "发布成功")):
         visibility = "public"
     else:

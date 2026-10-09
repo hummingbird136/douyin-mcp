@@ -473,6 +473,13 @@ def normalize_video_record(raw: dict[str, Any]) -> dict[str, Any] | None:
         visibility = "follower_visible"
     elif status and any(marker in status for marker in ("公开", "已发布", "发布成功")):
         visibility = "public"
+    elif metrics and all(
+        str(value).strip() == "-" for value in metrics.values() if str(value).strip()
+    ):
+        # 现行管理页对"仅自己可见"作品不渲染状态徽标，页面特征是
+        # 无状态文案且全部指标显示 "-"（平台对非公开作品不出数）。
+        # 真实新作品在此处会显示数字而非 "-"，可据此区分。
+        visibility = "private"
     else:
         visibility = "unknown"
     if raw_kind in {"video", "视频"} or (status and "视频" in status):
